@@ -1,14 +1,15 @@
-
-
+import aiofiles
+import aiofiles.os
 from pathlib import Path
+from typing import AsyncGenerator
 from packages.filesystem.baseConnector import BaseConnector
 
-BASE_PATH = "E:/workspace/codes/iamdev/data" 
+DEFAULT_BASE_PATH = "E:/workspace/codes/iamdev/data" 
 
 class LocalFileSystemConnector(BaseConnector):
 
-    def __init__(self):
-        self.base_path = Path(BASE_PATH).resolve()
+    def __init__(self, base_path: str = DEFAULT_BASE_PATH):
+        self.base_path = Path(base_path).resolve()
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def _get_full_path(self, file_path: str) -> Path:
@@ -17,23 +18,35 @@ class LocalFileSystemConnector(BaseConnector):
             raise PermissionError("Directory traversal detected: Access denied.")
         return full_path
 
-    def read_file(self, file_path: str, binary: bool = True) -> bytes | str:
-        full_path = self._get_full_path(file_path)
-        mode = "rb" if binary else "r"
-        with open(full_path, mode) as file:
-            return file.read()
+    async def download_stream(self, filename: str) -> AsyncGenerator[bytes, None]:
+        """Reads a file asynchronously in 1MB chunks to keep RAM usage minimal."""
+        full_path = self._get_full_path(filename)
+        
+        if not full_path.exists():
+            raise FileNotFoundError(f"File not found: {full_path}")
 
-    def write_file(self, filename: str, content: bytes | str, binary: bool = True) -> str:
+        # 'rb' ensures we are strictly speaking in bytes!
+        async with aiofiles.open(full_path, "rb") as file:
+            while chunk := await file.read(1024 * 1024):  # Yield 1MB at a time
+                yield chunk
+
+    async def upload_stream(self, filename: str, stream: AsyncGenerator[bytes, None]) -> str:
+        """Writes a file asynchronously by consuming a byte stream."""
         full_path = self._get_full_path(filename)
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        mode = "wb" if binary else "w"
-        with open(full_path, mode) as file:
-            file.write(content)
+        
+        # 'wb' ensures we are strictly writing bytes!
+        async with aiofiles.open(full_path, "wb") as file:
+            async for chunk in stream:
+                await file.write(chunk)
+                
         return str(full_path)
 
-    def delete_file(self, file_path: str) -> None:
+    async def delete_file(self, file_path: str) -> None:
+        """Deletes a file asynchronously."""
         full_path = self._get_full_path(file_path)
         if full_path.exists():
-            full_path.unlink()
+            # Use aiofiles.os to prevent blocking the event loop during deletion
+            await aiofiles.os.remove(full_path) 
         else:
             raise FileNotFoundError(f"File not found at: {full_path}")

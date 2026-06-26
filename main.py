@@ -1,11 +1,8 @@
 from fastapi import FastAPI
-from repository.routes.routes import router as repo_router
+from orion.routes import MAIN_ROUTER
+
 
 app = FastAPI(title="File Management API")
 
-# Include the external routes
-app.include_router(repo_router, tags=["repository"])
+app.include_router(MAIN_ROUTER)
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to your File Management API!", "status": "running"}
